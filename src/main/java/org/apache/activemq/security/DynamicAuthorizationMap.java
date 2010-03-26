@@ -13,13 +13,24 @@ import java.util.List;
 public class DynamicAuthorizationMap extends DefaultAuthorizationMap {
     public DynamicAuthorizationMap() throws Exception {
         super();
+        List<AuthorizationEntry> l = new ArrayList<AuthorizationEntry>();
+
         AuthorizationEntry ae = new AuthorizationEntry();
         ae.setDestination(new ActiveMQTopic("ActiveMQ.Advisory.>"));
         ae.setRead("users,admins,guests");
         ae.setWrite("users,admins,guests");
         ae.setAdmin("users,admins,guests");
-        List<AuthorizationEntry> l = new ArrayList<AuthorizationEntry>();
         l.add(ae);
+
+        /* Default all permissions for admins */
+
+        ae = new AuthorizationEntry();
+        ae.setDestination(new ActiveMQTopic(">"));
+        ae.setRead("admins");
+        ae.setWrite("admins");
+        ae.setAdmin("admins");
+        l.add(ae);
+        
         setEntries(l);
     }
 }
