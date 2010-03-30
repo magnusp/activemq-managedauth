@@ -191,72 +191,76 @@ public class ManagedAuthorizationBroker extends BrokerFilter implements Inspecta
     public void removeUserRole(String user, String role) {
     }
 
-    public void addDestinationRole(ActiveMQDestination destination, String operation, String role) {
-        GroupPrincipal newPrincipal = new GroupPrincipal(role);
+    public void addDestinationRole(ActiveMQDestination destination, String operation, String role) throws Exception {
+        for (AuthorizationEntry ae : authorizationMap.getAllEntries(destination)) {
+            GroupPrincipal newPrincipal = new GroupPrincipal(role);
 
-        if (authorizationMap.getAllEntries(destination).size() > 0) {
-            for (AuthorizationEntry e : authorizationMap.getAllEntries(destination)) {
-                try {
-                    if (operation.equals("read")) {
-                        if (!e.getReadACLs().contains(newPrincipal)) {
-                            if (e.getReadACLs().equals(Collections.EMPTY_SET)) {
-                                e.setReadACLs(new HashSet<Object>());
-                            }
-                            e.getReadACLs().add(newPrincipal);
-                        }
-                    } else if (operation.equals("write")) {
-                        if (!e.getWriteACLs().contains(newPrincipal)) {
-                            if (e.getWriteACLs().equals(Collections.EMPTY_SET)) {
-                                e.setWriteACLs(new HashSet<Object>());
-                            }
-                            e.getWriteACLs().add(newPrincipal);
-                        }
-                    } else if (operation.equals("admin")) {
-                        if (!e.getAdminACLs().contains(newPrincipal)) {
-                            if (e.getAdminACLs().equals(Collections.EMPTY_SET)) {
-                                e.setAdminACLs(new HashSet<Object>());
-                            }
-                            e.getAdminACLs().add(newPrincipal);
-                        }
-                    }
-                } catch (Exception ex) {
-                    ex.printStackTrace();
+            if (ae.getDestination().isPattern()) {
+                if (operation.equals("read") && ae.getReadACLs().contains(newPrincipal)) {
+                    return;
+                } else if (operation.equals("write") && ae.getWriteACLs().contains(newPrincipal)) {
+                    return;
+                } else if (operation.equals("admin") && ae.getAdminACLs().contains(newPrincipal)) {
+                    return;
                 }
             }
-        } else {
-            AuthorizationEntry ae = new AuthorizationEntry();
-            ae.setDestination(destination);
+
+            if (!ae.getDestination().equals(destination))
+                continue;
+
             if (operation.equals("read")) {
-                try {
-                    ae.setRead(role);
-                } catch (Exception e) {
-                    e.printStackTrace();
+                if (!ae.getReadACLs().contains(newPrincipal)) {
+                    if (ae.getReadACLs().equals(Collections.EMPTY_SET)) {
+                        ae.setReadACLs(new HashSet<Object>());
+                    }
+                    ae.getReadACLs().add(newPrincipal);
                 }
             } else if (operation.equals("write")) {
-                try {
-                    ae.setWrite(role);
-                } catch (Exception e) {
-                    e.printStackTrace();
+                if (!ae.getWriteACLs().contains(newPrincipal)) {
+                    if (ae.getWriteACLs().equals(Collections.EMPTY_SET)) {
+                        ae.setWriteACLs(new HashSet<Object>());
+                    }
+                    ae.getWriteACLs().add(newPrincipal);
                 }
             } else if (operation.equals("admin")) {
-                try {
-                    ae.setAdmin(role);
-                } catch (Exception e) {
-                    e.printStackTrace();
+                if (!ae.getAdminACLs().contains(newPrincipal)) {
+                    if (ae.getAdminACLs().equals(Collections.EMPTY_SET)) {
+                        ae.setAdminACLs(new HashSet<Object>());
+                    }
+                    ae.getAdminACLs().add(newPrincipal);
                 }
-            } else {
-                return;
             }
-            authorizationMap.put(destination, ae);
+            return;
         }
+
+        AuthorizationEntry ae = new AuthorizationEntry();
+        ae.setDestination(destination);
+        if (operation.equals("read")) {
+            ae.setRead(role);
+        } else if (operation.equals("write")) {
+            ae.setWrite(role);
+        } else if (operation.equals("admin")) {
+            ae.setAdmin(role);
+        }
+        authorizationMap.put(destination, ae);
     }
 
     public void addTopicRole(String topic, String operation, String role) {
-        addDestinationRole(new ActiveMQTopic(topic), operation, role);
+        log.debug("topic://" + topic + " - ADD " + operation + " :: " + role);
+        try {
+            addDestinationRole(new ActiveMQTopic(topic), operation, role);
+        } catch (Exception e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        }
     }
 
     public void addQueueRole(String queue, String operation, String role) {
-        addDestinationRole(new ActiveMQQueue(queue), operation, role);
+        log.debug("queue://" + queue + " - ADD " + operation + " :: " + role);
+        try {
+            addDestinationRole(new ActiveMQQueue(queue), operation, role);
+        } catch (Exception e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        }
     }
 
     public void removeDestinationRole(ActiveMQDestination destination, String operation, String role) {

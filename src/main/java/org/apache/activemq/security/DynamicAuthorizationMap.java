@@ -17,6 +17,7 @@ public class DynamicAuthorizationMap extends DefaultAuthorizationMap {
 
         AuthorizationEntry ae = new AuthorizationEntry();
         ae.setDestination(new ActiveMQTopic("ActiveMQ.Advisory.>"));
+
         ae.setRead("users,admins,guests");
         ae.setWrite("users,admins,guests");
         ae.setAdmin("users,admins,guests");
@@ -30,7 +31,7 @@ public class DynamicAuthorizationMap extends DefaultAuthorizationMap {
         ae.setWrite("admins");
         ae.setAdmin("admins");
         l.add(ae);
-        
+
         setEntries(l);
     }
 }
