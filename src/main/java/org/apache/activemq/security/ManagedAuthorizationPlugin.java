@@ -10,12 +10,12 @@ import org.apache.activemq.broker.BrokerPlugin;
  */
 public class ManagedAuthorizationPlugin implements BrokerPlugin {
 
-    private DynamicAuthorizationMap map;
+    private DefaultAuthorizationMap map;
 
     public ManagedAuthorizationPlugin() {
     }
 
-    public ManagedAuthorizationPlugin(DynamicAuthorizationMap map) {
+    public ManagedAuthorizationPlugin(DefaultAuthorizationMap map) {
         this.map = map;
     }
 
@@ -26,11 +26,11 @@ public class ManagedAuthorizationPlugin implements BrokerPlugin {
         return new ManagedAuthorizationBroker(broker, map);
     }
 
-    public DynamicAuthorizationMap getMap() {
+    public DefaultAuthorizationMap getMap() {
         return map;
     }
 
-    public void setMap(DynamicAuthorizationMap map) {
+    public void setMap(DefaultAuthorizationMap map) {
         this.map = map;
     }
 

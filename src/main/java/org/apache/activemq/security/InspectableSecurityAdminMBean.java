@@ -6,5 +6,5 @@ package org.apache.activemq.security;
  * Time: 11:35:53 AM
  */
 public interface InspectableSecurityAdminMBean extends SecurityAdminMBean {
-    void logAuthorizations();
+    String[] inspect();
 }

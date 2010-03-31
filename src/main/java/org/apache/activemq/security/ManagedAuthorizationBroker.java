@@ -15,9 +15,7 @@ import org.apache.commons.logging.LogFactory;
 import javax.management.ObjectName;
 import javax.management.StandardMBean;
 import java.security.Principal;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 
 /**
  * User: Magnus Persson
@@ -26,9 +24,9 @@ import java.util.Set;
  */
 public class ManagedAuthorizationBroker extends BrokerFilter implements InspectableSecurityAdminMBean {
     private static Log log = LogFactory.getLog(ManagedAuthorizationBroker.class);
-    private final DynamicAuthorizationMap authorizationMap;
+    private final DefaultAuthorizationMap authorizationMap;
 
-    public ManagedAuthorizationBroker(Broker next, DynamicAuthorizationMap authorizationMap) {
+    public ManagedAuthorizationBroker(Broker next, DefaultAuthorizationMap authorizationMap) {
         super(next);
         this.authorizationMap = authorizationMap;
     }
@@ -191,10 +189,19 @@ public class ManagedAuthorizationBroker extends BrokerFilter implements Inspecta
     public void removeUserRole(String user, String role) {
     }
 
-    public void addDestinationRole(ActiveMQDestination destination, String operation, String role) throws Exception {
-        for (AuthorizationEntry ae : authorizationMap.getAllEntries(destination)) {
-            GroupPrincipal newPrincipal = new GroupPrincipal(role);
+    public void addDestinationRole(ActiveMQDestination destination, String operation, String role) {
+        // We dont support composite destinations
+        if (destination.isComposite())
+            return;
 
+        // TODO Check that there is only one role/operation being added (does not contain ,)
+
+        /*
+        * Since there might be pattern destinations with existing privs, entries
+        * need to be scanned for exact matches.
+        */
+        GroupPrincipal newPrincipal = new GroupPrincipal(role);
+        for (AuthorizationEntry ae : authorizationMap.getAllEntries(destination)) {
             if (ae.getDestination().isPattern()) {
                 if (operation.equals("read") && ae.getReadACLs().contains(newPrincipal)) {
                     return;
@@ -204,54 +211,52 @@ public class ManagedAuthorizationBroker extends BrokerFilter implements Inspecta
                     return;
                 }
             }
+        }
+        try {
+            for (AuthorizationEntry ae : authorizationMap.getAllEntries(destination)) {
+                if (ae.getDestination().equals(destination)) {
+                    if (operation.equals("read") && !ae.getReadACLs().contains(newPrincipal)) {
+                        if (ae.getReadACLs().equals(Collections.EMPTY_SET))
+                            ae.setReadACLs(new HashSet());
 
-            if (!ae.getDestination().equals(destination))
-                continue;
+                        ae.setRead(role);
+                        return;
+                    } else if (operation.equals("write") && !ae.getWriteACLs().contains(newPrincipal)) {
+                        if (ae.getWriteACLs().equals(Collections.EMPTY_SET))
+                            ae.setWriteACLs(new HashSet());
 
-            if (operation.equals("read")) {
-                if (!ae.getReadACLs().contains(newPrincipal)) {
-                    if (ae.getReadACLs().equals(Collections.EMPTY_SET)) {
-                        ae.setReadACLs(new HashSet<Object>());
+                        ae.setWrite(role);
+                        return;
+                    } else if (operation.equals("admin") && !ae.getAdminACLs().contains(newPrincipal)) {
+                        if (ae.getAdminACLs().equals(Collections.EMPTY_SET))
+                            ae.setAdminACLs(new HashSet());
+
+                        ae.setAdmin(role);
+                        return;
                     }
-                    ae.getReadACLs().add(newPrincipal);
-                }
-            } else if (operation.equals("write")) {
-                if (!ae.getWriteACLs().contains(newPrincipal)) {
-                    if (ae.getWriteACLs().equals(Collections.EMPTY_SET)) {
-                        ae.setWriteACLs(new HashSet<Object>());
-                    }
-                    ae.getWriteACLs().add(newPrincipal);
-                }
-            } else if (operation.equals("admin")) {
-                if (!ae.getAdminACLs().contains(newPrincipal)) {
-                    if (ae.getAdminACLs().equals(Collections.EMPTY_SET)) {
-                        ae.setAdminACLs(new HashSet<Object>());
-                    }
-                    ae.getAdminACLs().add(newPrincipal);
                 }
             }
-            return;
-        }
 
-        AuthorizationEntry ae = new AuthorizationEntry();
-        ae.setDestination(destination);
-        if (operation.equals("read")) {
-            ae.setRead(role);
-        } else if (operation.equals("write")) {
-            ae.setWrite(role);
-        } else if (operation.equals("admin")) {
-            ae.setAdmin(role);
+            AuthorizationEntry ae = new AuthorizationEntry();
+            ae.setDestination(destination);
+
+            if (operation.equals("read")) {
+                ae.setRead(role);
+            } else if (operation.equals("write")) {
+                ae.setWrite(role);
+            } else if (operation.equals("admin")) {
+                ae.setAdmin(role);
+            }
+            authorizationMap.put(destination, ae);
+        } catch (Exception ex) {
+            ex.printStackTrace();
         }
-        authorizationMap.put(destination, ae);
     }
 
     public void addTopicRole(String topic, String operation, String role) {
         log.debug("topic://" + topic + " - ADD " + operation + " :: " + role);
-        try {
-            addDestinationRole(new ActiveMQTopic(topic), operation, role);
-        } catch (Exception e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-        }
+
+        addDestinationRole(new ActiveMQTopic(topic), operation, role);
     }
 
     public void addQueueRole(String queue, String operation, String role) {
@@ -266,28 +271,29 @@ public class ManagedAuthorizationBroker extends BrokerFilter implements Inspecta
     public void removeDestinationRole(ActiveMQDestination destination, String operation, String role) {
         GroupPrincipal oldPrincipal = new GroupPrincipal(role);
 
-        Set<AuthorizationEntry> entries = authorizationMap.getAllEntries(destination);
-        for (AuthorizationEntry ae : entries) {
-            if (operation.equals("read")) {
-                if (ae.getReadACLs().equals(Collections.EMPTY_SET))
+        for (AuthorizationEntry ae : authorizationMap.getAllEntries(destination)) {
+            if (ae.getDestination().equals(destination)) {
+                if (operation.equals("read")) {
+                    if (ae.getReadACLs().equals(Collections.EMPTY_SET))
+                        continue;
+
+                    ae.getReadACLs().remove(oldPrincipal);
+                } else if (operation.equals("write")) {
+                    if (ae.getWriteACLs().equals(Collections.EMPTY_SET))
+                        continue;
+
+                    ae.getWriteACLs().remove(oldPrincipal);
+                } else if (operation.equals("admin")) {
+                    if (ae.getAdminACLs().equals(Collections.EMPTY_SET))
+                        continue;
+
+                    ae.getAdminACLs().remove(oldPrincipal);
+                } else
                     return;
 
-                ae.getReadACLs().remove(oldPrincipal);
-            } else if (operation.equals("write")) {
-                if (ae.getWriteACLs().equals(Collections.EMPTY_SET))
-                    return;
-
-                ae.getWriteACLs().remove(oldPrincipal);
-            } else if (operation.equals("read")) {
-                if (ae.getAdminACLs().equals(Collections.EMPTY_SET))
-                    return;
-
-                ae.getAdminACLs().remove(oldPrincipal);
-            } else
-                return;
-
-            if (ae.getReadACLs().size() + ae.getWriteACLs().size() + ae.getAdminACLs().size() == 0) {
-                authorizationMap.remove(destination, ae);
+                if (ae.getReadACLs().size() + ae.getWriteACLs().size() + ae.getAdminACLs().size() == 0) {
+                    authorizationMap.remove(destination, ae);
+                }
             }
         }
     }
@@ -302,6 +308,8 @@ public class ManagedAuthorizationBroker extends BrokerFilter implements Inspecta
 
     public void start() throws Exception {
         super.start();
+        postProcessAuthorizationMap();
+
         ManagementContext mc = getBrokerService().getManagementContext();
         StringBuilder sb = new StringBuilder();
         sb.append(mc.getJmxDomainName());
@@ -312,10 +320,62 @@ public class ManagedAuthorizationBroker extends BrokerFilter implements Inspecta
         mc.registerMBean(new StandardMBean(this, InspectableSecurityAdminMBean.class), name);
     }
 
-    public void logAuthorizations() {
-        Set<AuthorizationEntry> entries = new HashSet<AuthorizationEntry>();
-        entries.addAll(authorizationMap.getAllEntries(new ActiveMQTopic(">")));
+    protected void postProcessAuthorizationMap() {
+        /*
+         * For easier management, we break up composite destinations
+         */
+        Set<AuthorizationEntry> toRemove = new HashSet<AuthorizationEntry>();
+        Set<AuthorizationEntry> entries = authorizationMap.getAllEntries(new ActiveMQTopic(">"));
         entries.addAll(authorizationMap.getAllEntries(new ActiveMQQueue(">")));
+        for (AuthorizationEntry ae : entries) {
+            if (ae.getDestination().isComposite()) {
+                authorizationMap.remove(ae.getDestination(), ae);
+                ActiveMQDestination[] cDestinations = ae.getDestination().getCompositeDestinations();
+                for (ActiveMQDestination cDestination : cDestinations) {
+                    AuthorizationEntry newAE = new AuthorizationEntry();
+                    newAE.setDestination(cDestination);
+                    StringBuilder sb = new StringBuilder();
+                    try {
+                        for (Object p : ae.getReadACLs().toArray()) {
+                            sb.append(((Principal) p).getName());
+                            sb.append(",");
+                        }
+                        if (sb.length() > 1)
+                            sb.setLength(sb.length() - 1);
+                        newAE.setRead(sb.toString());
+                        sb.setLength(0);
+
+                        for (Object p : ae.getWriteACLs().toArray()) {
+                            sb.append(((Principal) p).getName());
+                            sb.append(",");
+                        }
+                        if (sb.length() > 1)
+                            sb.setLength(sb.length() - 1);
+                        newAE.setWrite(sb.toString());
+                        sb.setLength(0);
+
+                        for (Object p : ae.getAdminACLs().toArray()) {
+                            sb.append(((Principal) p).getName());
+                            sb.append(",");
+                        }
+                        if (sb.length() > 1)
+                            sb.setLength(sb.length() - 1);
+                        newAE.setAdmin(sb.toString());
+                        sb.setLength(0);
+
+                        authorizationMap.put(cDestination, newAE);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+    }
+
+    public String[] inspect() {
+        Set<AuthorizationEntry> entries = authorizationMap.getAllEntries(new ActiveMQTopic(">"));
+        entries.addAll(authorizationMap.getAllEntries(new ActiveMQQueue(">")));
+        List<String> answer = new ArrayList<String>();
 
         for (AuthorizationEntry ae : entries) {
             StringBuilder sb = new StringBuilder("");
@@ -336,7 +396,8 @@ public class ManagedAuthorizationBroker extends BrokerFilter implements Inspecta
                 sb.append(((Principal) acl).getName());
             }
             sb.append(" ]");
-            log.debug(sb.toString());
+            answer.add(sb.toString());
         }
+        return answer.toArray(new String[answer.size()]);
     }
 }
